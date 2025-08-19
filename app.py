@@ -78,12 +78,53 @@ def read_pdf(file) -> str:
 
 @st.cache_data(show_spinner=False)
 def nltk_download_punkt():
-    nltk.download("punkt", quiet=True)
+    """Download NLTK punkt tokenizer with fallback for different versions."""
+    try:
+        # Try the new punkt_tab first (NLTK 3.8+)
+        nltk.download("punkt_tab", quiet=True)
+    except:
+        try:
+            # Fallback to old punkt tokenizer
+            nltk.download("punkt", quiet=True)
+        except:
+            st.error("Failed to download NLTK tokenizer. Please check your internet connection.")
 
-def split_sentences(text: str) -> List[str]:
-    """Split into sentences safely, with improved reference section removal."""
-    nltk_download_punkt()
+def split_sentences_alternative(text: str) -> List[str]:
+    """Alternative sentence splitting without NLTK dependency."""
+    # Improved reference section removal
+    patterns = [
+        r"\n\s*(references|bibliography|works cited|citations?)\s*\n",
+        r"\n\s*(appendix|appendices)\s*[a-z]?\s*\n"
+    ]
     
+    for pattern in patterns:
+        split = re.split(pattern, text, flags=re.IGNORECASE, maxsplit=1)
+        if len(split) > 1:
+            text = split[0]
+            break
+    
+    # Basic sentence splitting using regex
+    # Split on sentence endings, but be careful with abbreviations
+    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+    
+    # Filter and clean sentences
+    sents = []
+    for s in sentences:
+        s = s.strip()
+        # Skip very short sentences and number-only sentences
+        if len(s) > 20 and not re.match(r'^[\d\s\.\-]+$', s):
+            # Remove extra whitespace
+            s = re.sub(r'\s+', ' ', s)
+            sents.append(s)
+    
+    if len(sents) > MAX_SENTENCES:
+        st.warning(f"Document has {len(sents)} sentences. Using first {MAX_SENTENCES} for analysis.")
+        sents = sents[:MAX_SENTENCES]
+    
+    return sents
+
+def split_sentences_nltk(text: str) -> List[str]:
+    """NLTK-based sentence splitting."""
     # Improved reference section removal
     patterns = [
         r"\n\s*(references|bibliography|works cited|citations?)\s*\n",
@@ -109,6 +150,21 @@ def split_sentences(text: str) -> List[str]:
         sents = sents[:MAX_SENTENCES]
     
     return sents
+
+def split_sentences(text: str) -> List[str]:
+    """Split into sentences with NLTK fallback to regex-based splitting."""
+    # Try NLTK first
+    try:
+        nltk_download_punkt()
+        # Test if tokenizer works
+        test_result = sent_tokenize("Test sentence. Another sentence.")
+        if len(test_result) >= 2:  # If NLTK works properly
+            return split_sentences_nltk(text)
+    except Exception as e:
+        st.warning(f"NLTK tokenizer failed: {e}. Using alternative sentence splitting.")
+    
+    # Fall back to regex-based splitting
+    return split_sentences_alternative(text)
 
 def color_for_score(score: float) -> str:
     if score >= RED_THRESHOLD:
